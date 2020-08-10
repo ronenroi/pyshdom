@@ -3,7 +3,7 @@ import numpy as np
 import argparse
 import shdom
 import scipy.ndimage as sci
-
+import scipy.stats as sci_stat
 
 class OptimizationScript(object):
     """
@@ -375,8 +375,8 @@ class OptimizationScript(object):
             sun_azimuth_list = np.delete(sun_azimuth_list, cv_index)
             sun_zenith_list = np.delete(sun_zenith_list, cv_index)
             est_albedo_list = np.delete(est_albedo_list, cv_index)
-        sun_azimuth_list = np.mean(np.split(np.array(sun_azimuth_list), num_of_mediums), 1)
-        sun_zenith_list = np.mean(np.split(np.array(sun_zenith_list), num_of_mediums), 1)
+        sun_azimuth_list = sci_stat.circmean(np.split(np.array(sun_azimuth_list), num_of_mediums), axis=1,high=360)
+        sun_zenith_list = sci_stat.circmean(np.split(np.array(sun_zenith_list), num_of_mediums), axis=1,high=360)
         est_albedo_list = np.mean(np.split(np.array(est_albedo_list), num_of_mediums), 1)
 
         wl_scene_params_list =[]
