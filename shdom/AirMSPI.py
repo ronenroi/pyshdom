@@ -31,8 +31,8 @@ class AirMSPIMeasurements(shdom.Measurements):
         self._region_of_interest = None
         self._paths = None
         self._set_valid_wavelength_range = None
-        self.cloud_base_h = 0.0
-        self.cloud_max_h = 1.0
+        self.cloud_base_h = 0.5
+        self.cloud_max_h = 1.5
         self._bb = None
         self._relative_coordinates = None
         if images is not None:

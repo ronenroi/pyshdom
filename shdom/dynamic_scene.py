@@ -1810,6 +1810,7 @@ class DynamicMediumEstimator(object):
             wavelength = [self.wavelength]
         num_channels = len(wavelength)
         multichannel = num_channels > 1
+        norm_const = total_pix * vmax
 
         for medium_estimator, rte_solver, measurement in zip(self.medium_list, dynamic_solver.solver_array_list, measurements):
             grad_output = medium_estimator.compute_gradient(shdom.RteSolverArray(rte_solver),measurement,n_jobs)
@@ -1824,7 +1825,6 @@ class DynamicMediumEstimator(object):
             #     new_shape.append(num_channels)
             # images.append(image.reshape(resolution, order='F'))
             images += image
-        norm_const = total_pix * vmax
         # loss.append(data_loss ** 0.5 / norm_const) #unit less loss
         loss.append(data_loss/num_images)
 
@@ -2577,6 +2577,15 @@ class DynamicSummaryWriter(object):
         acq_titles = ['Acquired/view{}'.format(view) for view in range(num_images)]
         self.write_image_list(0, acquired_images, acq_titles, vmax=kwargs['vmax'])
 
+        kwargs = {
+            'ckpt_period': ckpt_period,
+            'ckpt_time': time.time(),
+            'title': 'loss/normalized loss image {}',
+            'acquired_images': acquired_images,
+            'vmax': vmax
+        }
+        self.add_callback_fn(self.loss_norm_cbfn, kwargs)
+
     def save_ckpt_cbfn(self, kwargs=None):
         """
         Callback function that saves checkpoints .
@@ -2609,6 +2618,20 @@ class DynamicSummaryWriter(object):
         else:
             self.tf_writer.add_scalar(kwargs['Data term loss'], self.optimizer.loss, self.optimizer.iteration)
 
+    def loss_norm_cbfn(self, kwargs):
+        """
+        Callback function that is called (every optimizer iteration) for loss monitoring.
+
+        Parameters
+        ----------
+        kwargs: dict,
+            keyword arguments
+        """
+
+        losses_norm = [np.sum((im1 - im2).ravel()**2) ** 0.5 / im1.max() / im1.size for im1, im2 in zip(kwargs['acquired_images'], self.optimizer.images)]
+        for i, loss in enumerate(losses_norm):
+
+            self.tf_writer.add_scalars('loss/normalized loss', {kwargs['title'].format(i): loss}, self.optimizer.iteration)
 
     # def time_smoothness_cbfn(self, kwargs):
     #     """
