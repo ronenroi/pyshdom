@@ -31,8 +31,8 @@ class AirMSPIMeasurements(shdom.Measurements):
         self._region_of_interest = None
         self._paths = None
         self._set_valid_wavelength_range = None
-        self.cloud_min_h = 0.0
-        self.cloud_max_h = 1.5
+        self.cloud_base_h = 0.0
+        self.cloud_max_h = 1.0
         self._bb = None
         self._relative_coordinates = None
         if images is not None:
@@ -288,14 +288,17 @@ class AirMSPIMeasurements(shdom.Measurements):
         channels_data = f['HDFEOS']['GRIDS']['865nm_band']['Data Fields'] # 355 was before
         I = np.array(channels_data['I'][region_of_interest[0]:region_of_interest[1],
                      region_of_interest[2]:region_of_interest[3]])
-        cloud_com_x, cloud_com_y = self.center_of_mass(I,flat_earth_pos[1],flat_earth_pos[0])
+        
+        cloud_base_pos = [flat_earth_pos[1] + self.cloud_base_h * np.tan(theta) * np.cos(phi),
+                          flat_earth_pos[0] + self.cloud_base_h * np.tan(theta) * np.sin(phi)]
+        cloud_com_x, cloud_com_y = self.center_of_mass(I,cloud_base_pos[0], cloud_base_pos[1])
 
-        bb_x = flat_earth_pos[1] + self.cloud_min_h * np.tan(theta) * np.cos(phi) - cloud_com_x
-        bb_y = flat_earth_pos[0] + self.cloud_min_h * np.tan(theta) * np.cos(phi) - cloud_com_y
+        bb_x = cloud_base_pos[0] - cloud_com_x
+        bb_y = cloud_base_pos[1] - cloud_com_y
         self.set_cloud_bounding_box(bb_x, bb_y)
 
-        xTranslation = (airmspi_flight_altitude) * np.tan(theta) * np.cos(phi) - cloud_com_x # X - North
-        yTranslation = (airmspi_flight_altitude) * np.tan(theta) * np.sin(phi) - cloud_com_y # Y - East
+        xTranslation = (airmspi_flight_altitude-self.cloud_base_h) * np.tan(theta) * np.cos(phi) - cloud_com_x # X - North
+        yTranslation = (airmspi_flight_altitude-self.cloud_base_h) * np.tan(theta) * np.sin(phi) - cloud_com_y # Y - East
 
         x = flat_earth_pos[1] + xTranslation
         y = flat_earth_pos[0] + yTranslation
@@ -316,9 +319,9 @@ class AirMSPIMeasurements(shdom.Measurements):
                 of cloud's base location in Km.
         """
         if self._bb is None:
-            self._bb = shdom.BoundingBox(x.min(), y.min(), self.cloud_min_h, x.max(), y.max(), self.cloud_max_h)
+            self._bb = shdom.BoundingBox(x.min(), y.min(), self.cloud_base_h, x.max(), y.max(), self.cloud_max_h)
         else:
-            bb = shdom.BoundingBox(x.min(), y.min(), self.cloud_min_h, x.max(), y.max(), self.cloud_max_h)
+            bb = shdom.BoundingBox(x.min(), y.min(), self.cloud_base_h, x.max(), y.max(), self.cloud_max_h)
             self._bb = self._bb + bb
 
     def center_of_mass(self, I, x, y):
@@ -473,7 +476,7 @@ class AirMSPIMeasurements(shdom.Measurements):
 
         self._glint_angles = glint_angles
 
-    def calc_albedo(self, threshold=None):
+    def calc_albedo(self, threshold=None, medium_list=None):
 
         wavelengths = self.wavelength
         if not isinstance(wavelengths, list):
@@ -484,38 +487,43 @@ class AirMSPIMeasurements(shdom.Measurements):
             '../mie_tables/polydisperse/Water_{}nm.scat'.format(shdom.int_round(wavelength))
             for wavelength in wavelengths
         ]
-        solar_spectrum = shdom.SolarSpectrum('../ancillary_data/SpectralSolar_MODWehrli_1985_WMO.npz')
-        solar_fluxes = solar_spectrum.get_monochrome_solar_flux(wavelengths)
-        solar_flux = solar_fluxes
-        df = pd.read_csv('../ancillary_data/AFGL_summer_mid_lat.txt', comment='#', sep=' ')
-        temperatures = df['Temperature(k)'].to_numpy(dtype=np.float32)
-        altitudes = df['Altitude(km)'].to_numpy(dtype=np.float32)
-        temperature_profile = shdom.GridData(shdom.Grid(z=altitudes), temperatures)
-        air_grid = shdom.Grid(z=np.linspace(0, 20, 20))
-        air = shdom.MultispectralScatterer()
-        for wavelength, table_path in zip(wavelengths, mie_table_paths):
-            # Molecular Rayleigh scattering
-            rayleigh = shdom.Rayleigh(wavelength)
-            rayleigh.set_profile(temperature_profile.resample(air_grid))
-            air.add_scatterer(rayleigh.get_scatterer())
+        # solar_spectrum = shdom.SolarSpectrum('../ancillary_data/SpectralSolar_MODWehrli_1985_WMO.npz')
+        # solar_fluxes = solar_spectrum.get_monochrome_solar_flux(wavelengths)
+        # solar_flux = solar_fluxes
+        solar_flux = 1
+        if medium_list is None:
+            df = pd.read_csv('../ancillary_data/AFGL_summer_mid_lat.txt', comment='#', sep=' ')
+            temperatures = df['Temperature(k)'].to_numpy(dtype=np.float32)
+            altitudes = df['Altitude(km)'].to_numpy(dtype=np.float32)
+            temperature_profile = shdom.GridData(shdom.Grid(z=altitudes), temperatures)
+            air_grid = shdom.Grid(z=np.linspace(0, 20, 20))
+            air = shdom.MultispectralScatterer()
+            for wavelength, table_path in zip(wavelengths, mie_table_paths):
+                # Molecular Rayleigh scattering
+                rayleigh = shdom.Rayleigh(wavelength)
+                rayleigh.set_profile(temperature_profile.resample(air_grid))
+                air.add_scatterer(rayleigh.get_scatterer())
+            grid = shdom.Grid(bounding_box=self.bb, nx=10, ny=10, nz=10)
+            atmospheric_grid = grid + air.grid
+            atmosphere = shdom.Medium(atmospheric_grid)
+            atmosphere.add_scatterer(air, name='air')
+            medium_list = [atmosphere]*len(self.images)
+
 
         sensor = self.camera.sensor
         albedo_opt_res_list = []
         est_albedo_list =[]
-        for image, sun_azimuth, sun_zenith, projection in zip (self.images, self.sun_azimuth_list, self.sun_zenith_list,
-                                                               self._projections.projection_list):
+        for image, sun_azimuth, sun_zenith, projection,atmosphere in zip (self.images, self.sun_azimuth_list, self.sun_zenith_list,
+                                                               self._projections.projection_list,medium_list):
             if threshold is None:
                 im_threshold = filters.threshold_otsu(image)
             else:
                 im_threshold = threshold
             ocean = np.mean(image[image < im_threshold])
-            ocean_image = np.full(image.shape, ocean)
-            grid = shdom.Grid(bounding_box=self.bb, nx=10, ny=10, nz=10)
-            atmospheric_grid = grid + air.grid
-            atmosphere = shdom.Medium(atmospheric_grid)
-            atmosphere.add_scatterer(air, name='air')
-            albedo_opt_res = minimize_scalar(lambda albedo: self.calc_albedo_mse(albedo, wavelength, sun_azimuth, sun_zenith,\
-                                                                      solar_flux, atmosphere, ocean_image, sensor,\
+            if medium_list is None:
+                image = np.full(image.shape, ocean)
+            albedo_opt_res = minimize_scalar(lambda albedo: self.calc_albedo_mse(albedo, wavelengths[0], sun_azimuth, sun_zenith,\
+                                                                      solar_flux, atmosphere, image, sensor,\
                                                                        projection), bounds=(0, 0.1), method='bounded')
             albedo_opt_res_list.append(albedo_opt_res)
             est_albedo = albedo_opt_res.x
@@ -524,7 +532,7 @@ class AirMSPIMeasurements(shdom.Measurements):
         self._est_albedo_list = est_albedo_list
 
     @staticmethod
-    def calc_albedo_mse(albedo, wavelength, sun_azimuth, sun_zenith, solar_flux, atmosphere, ocean_image, sensor, projection):
+    def calc_albedo_mse(albedo, wavelength, sun_azimuth, sun_zenith, solar_flux, atmosphere, image, sensor, projection):
         numerical_params = shdom.NumericalParameters()
         rte_solvers = shdom.RteSolverArray()
         scene_params = shdom.SceneParameters(
@@ -539,7 +547,9 @@ class AirMSPIMeasurements(shdom.Measurements):
         rte_solvers.solve(maxiter=10)
         camera = shdom.Camera(sensor=sensor, projection=projection)
         rendered_image = camera.render(rte_solvers, n_jobs=40)
-        mse = np.mean(((rendered_image - ocean_image).ravel()) ** 2)
+        mse = np.mean(((rendered_image - image).ravel()) ** 2)
+        # plt.imshow(rendered_image)
+        # plt.show()
         return mse
 
     def plot(self, ax, xlim, ylim, zlim, length=0.1):

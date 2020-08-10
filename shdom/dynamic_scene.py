@@ -1797,8 +1797,11 @@ class DynamicMediumEstimator(object):
 
 
         resolutions = measurements.camera.dynamic_projection.resolution
+        total_pix = np.sum(np.array(measurements.camera.dynamic_projection.npix).ravel())
         num_images = len(measurements.images)
         avg_npix = np.mean(resolutions)**2
+        vmax = [image.max() * 1.25 for image in measurements.images]
+        vmax = max(vmax)
         split_indices = np.cumsum(measurements.camera.dynamic_projection.npix[:-1])
         measurements = measurements.split(split_indices)
         # if len(self.wavelength)>2:
@@ -1812,7 +1815,7 @@ class DynamicMediumEstimator(object):
             grad_output = medium_estimator.compute_gradient(shdom.RteSolverArray(rte_solver),measurement,n_jobs)
             # data_gradient.extend(grad_output[0] / measurement.images.size/ len(measurements)) #unit less grad
             # data_loss += (grad_output[1] / measurement.images.size) #unit less loss
-            data_gradient.extend(grad_output[0]/ num_images)
+            data_gradient.extend(grad_output[0]/num_images)
             data_loss += (grad_output[1])
             image = grad_output[2]
             # resolution = measurement.images.shape
@@ -1821,8 +1824,9 @@ class DynamicMediumEstimator(object):
             #     new_shape.append(num_channels)
             # images.append(image.reshape(resolution, order='F'))
             images += image
-        loss.append(data_loss / num_images) #unit less loss
-        # loss.append(data_loss)
+        norm_const = total_pix * vmax
+        # loss.append(data_loss ** 0.5 / norm_const) #unit less loss
+        loss.append(data_loss/num_images)
 
         if regularization_const != 0 and len(self.medium_list) > 1:
             regularization_loss, regularization_grad = self.compute_gradient_regularization(regularization_const, avg_npix)
@@ -2543,6 +2547,7 @@ class DynamicSummaryWriter(object):
 
         if sensor_type == 'RadianceSensor':
             vmax = [image.max() * 1.25 for image in acquired_images]
+            vmax = max(vmax)
         elif sensor_type == 'StokesSensor':
             vmax = [image.reshape(image.shape[0], -1).max(axis=-1) * 1.25 for image in acquired_images]
 
@@ -2553,6 +2558,22 @@ class DynamicSummaryWriter(object):
             'vmax': vmax
         }
         self.add_callback_fn(self.estimated_images_cbfn, kwargs)
+
+        kwargs = {
+            'ckpt_period': ckpt_period,
+            'ckpt_time': time.time(),
+            'title': ['Diff/view{}'.format(view) for view in range(num_images)],
+            'acquired_images': acquired_images,
+            'vmax': vmax
+        }
+        self.add_callback_fn(self.diff_images_cbfn, kwargs)
+
+        kwargs = {
+            'ckpt_period': ckpt_period,
+            'ckpt_time': time.time(),
+            'title': ['Diff/view{}'.format(view) for view in range(num_images)],
+            'vmax': vmax
+        }
         acq_titles = ['Acquired/view{}'.format(view) for view in range(num_images)]
         self.write_image_list(0, acquired_images, acq_titles, vmax=kwargs['vmax'])
 
@@ -2623,6 +2644,20 @@ class DynamicSummaryWriter(object):
             for param in estimator.estimators.values():
                 state = np.concatenate((state, param.get_state() / param.precondition_scale_factor))
         self.states.append(state)
+
+
+    def diff_images_cbfn(self, kwargs):
+        """
+        Callback function the is called every optimizer iteration image monitoring is set.
+
+        Parameters
+        ----------
+        kwargs: dict,
+            keyword arguments
+        """
+        diff = [np.abs(im1 - im2) for im1, im2 in zip(kwargs['acquired_images'], self.optimizer.images)]
+        self.write_image_list(self.optimizer.iteration, diff, kwargs['title'], kwargs['vmax'])
+
 
     def estimated_images_cbfn(self, kwargs):
         """

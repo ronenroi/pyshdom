@@ -149,7 +149,7 @@ class OptimizationScript(object):
                             help='(default value: %(default)s) Threshold for the radiance to create a cloud mask.' \
                             'Threshold is either a scalar or a list of length of measurements.')
         parser.add_argument('--space_carve_agreement',
-                            default=0.7,
+                            default=0.9,
                             type=np.float32)
         parser.add_argument('--mie_base_path',
                             default='mie_tables/polydisperse/Water_<wavelength>nm.scat',
@@ -375,9 +375,9 @@ class OptimizationScript(object):
             sun_azimuth_list = np.delete(sun_azimuth_list, cv_index)
             sun_zenith_list = np.delete(sun_zenith_list, cv_index)
             est_albedo_list = np.delete(est_albedo_list, cv_index)
-            sun_azimuth_list = np.mean(np.split(sun_azimuth_list, num_of_mediums), 1)
-            sun_zenith_list = np.mean(np.split(sun_zenith_list, num_of_mediums), 1)
-            est_albedo_list = np.mean(np.split(est_albedo_list, num_of_mediums), 1)
+        sun_azimuth_list = np.mean(np.split(np.array(sun_azimuth_list), num_of_mediums), 1)
+        sun_zenith_list = np.mean(np.split(np.array(sun_zenith_list), num_of_mediums), 1)
+        est_albedo_list = np.mean(np.split(np.array(est_albedo_list), num_of_mediums), 1)
 
         wl_scene_params_list =[]
         wl_numerical_params_list =[]
@@ -388,6 +388,7 @@ class OptimizationScript(object):
                 scene_params = shdom.SceneParameters(
                     wavelength=wavelength,
                     surface=shdom.LambertianSurface(albedo=0.008),
+                    # surface=shdom.OceanSurface(wind_speed=25),
                     source=shdom.SolarSource(azimuth=sun_azimuth, zenith=sun_zenith)
                 )
                 scene_params_list.append(scene_params)
@@ -406,6 +407,7 @@ class OptimizationScript(object):
                 scene_params = shdom.SceneParameters(
                     wavelength=wavelength,
                     surface=shdom.LambertianSurface(albedo=0.008),
+                    # surface=shdom.OceanSurface(wind_speed=25),
                     source=shdom.SolarSource(azimuth=cv_sun_azimuth, zenith=cv_sun_zenith)
                 )
                 scene_params_list.append(scene_params)
@@ -417,6 +419,7 @@ class OptimizationScript(object):
                                                     numerical_params=wl_numerical_params_list)
 
         return dynamic_solver, cv_dynamic_solver
+
 
     def main(self):
         """
