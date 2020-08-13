@@ -170,7 +170,7 @@ class ReadReasultsScript(ExtinctionOptimizationScript):
         nz = estimated_extinction.grid.nz
         dz = (estimated_extinction.grid.zmax - estimated_extinction.grid.zmin) / nz
         sio.savemat(os.path.join(self.args.load_path, 'FINAL_3D_{}.mat'.format('extinction')),
-                    {'estimated_extinction': estimated_extinction_stack, 'dx': dx, 'dy': dy, 'dz': dz})
+                    {'estimated_extinction': estimated_extinction_stack, 'dx': dy, 'dy': dx, 'dz': dz})
 
     def load_args(self, load_path):
         text_file = open(load_path+"/Input_args.txt", "r")

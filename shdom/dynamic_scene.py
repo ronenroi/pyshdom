@@ -16,6 +16,8 @@ import tensorboardX as tb
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from skimage import filters
+import scipy.io as sio
+
 
 
 
@@ -3133,7 +3135,33 @@ class DynamicSummaryWriter(object):
                         global_step=self.optimizer.iteration
                     )
 
+    def monitor_save3d(self, ckpt_period=-1):
+        kwargs = {
+            'ckpt_period': ckpt_period,
+            'ckpt_time': time.time(),
+        }
+        self.add_callback_fn(self.save3d_cbfn, kwargs)
 
+    def save3d_cbfn(self, kwargs):
+        estimated_extinction_stack = []
+        estimated_dynamic_medium = self.optimizer.medium.medium_list
+        for medium_estimator in estimated_dynamic_medium:
+            for estimator_name, estimator in medium_estimator.estimators.items():
+                estimated_extinction = estimator.extinction
+                estimated_extinction_stack.append(estimated_extinction.data)
+
+        estimated_extinction_stack = np.stack(estimated_extinction_stack, axis=3)
+        try:
+            dx = estimated_extinction.grid.dx
+            dy = estimated_extinction.grid.dy
+        except AttributeError:
+            dx = -1
+            dy = -1
+
+        nz = estimated_extinction.grid.nz
+        dz = (estimated_extinction.grid.zmax - estimated_extinction.grid.zmin) / nz
+        sio.savemat(os.path.join(self._dir, 'FINAL_3D_{}.mat'.format('extinction')),
+                    {'estimated_extinction': estimated_extinction_stack, 'dx': dy, 'dy': dx, 'dz': dz, 'iteration': self.optimizer.iteration})
 
     @property
     def callback_fns(self):

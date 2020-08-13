@@ -32,7 +32,7 @@ class AirMSPIMeasurements(shdom.Measurements):
         self._paths = None
         self._set_valid_wavelength_range = None
         self.cloud_base_h = 0.5
-        self.cloud_max_h = 1.5
+        self.cloud_max_h = 2
         self._bb = None
         self._relative_coordinates = None
         if images is not None:
@@ -268,7 +268,7 @@ class AirMSPIMeasurements(shdom.Measurements):
 
         # -------------- Registration to 20 km altitude -------------
         # LLA(Latitude - Longitude - Altitude) to Flat surface(meters)
-        airmspi_flight_altitude = 20.0  # km
+        airmspi_flight_altitude = 20  # km
         lla = [latitude, longitude, projections_height]
         if self._relative_coordinates is None:
             llo = [latitude.min(), longitude.min()]  # Origin of lat - long coordinate system
@@ -297,8 +297,8 @@ class AirMSPIMeasurements(shdom.Measurements):
         bb_y = cloud_base_pos[1] - cloud_com_y
         self.set_cloud_bounding_box(bb_x, bb_y)
 
-        xTranslation = (airmspi_flight_altitude-self.cloud_base_h) * np.tan(theta) * np.cos(phi) - cloud_com_x # X - North
-        yTranslation = (airmspi_flight_altitude-self.cloud_base_h) * np.tan(theta) * np.sin(phi) - cloud_com_y # Y - East
+        xTranslation = (airmspi_flight_altitude) * np.tan(theta) * np.cos(phi) - cloud_com_x # X - North
+        yTranslation = (airmspi_flight_altitude) * np.tan(theta) * np.sin(phi) - cloud_com_y # Y - East
 
         x = flat_earth_pos[1] + xTranslation
         y = flat_earth_pos[0] + yTranslation
@@ -319,9 +319,9 @@ class AirMSPIMeasurements(shdom.Measurements):
                 of cloud's base location in Km.
         """
         if self._bb is None:
-            self._bb = shdom.BoundingBox(x.min(), y.min(), self.cloud_base_h, x.max(), y.max(), self.cloud_max_h)
+            self._bb = shdom.BoundingBox(x.min(), y.min(), 0, x.max(), y.max(), self.cloud_max_h)
         else:
-            bb = shdom.BoundingBox(x.min(), y.min(), self.cloud_base_h, x.max(), y.max(), self.cloud_max_h)
+            bb = shdom.BoundingBox(x.min(), y.min(), 0, x.max(), y.max(), self.cloud_max_h)
             self._bb = self._bb + bb
 
     def center_of_mass(self, I, x, y):
@@ -600,7 +600,6 @@ class AirMSPIMeasurements(shdom.Measurements):
                 y = np.vstack((y, np.full(4, position_y, dtype=np.float32)))
                 z = np.vstack((z, np.full(4, position_z, dtype=np.float32)))
         ax.quiver(x, y, z, u, v, w, length=length, pivot='tail')
-
     @staticmethod
     def lla2flat(lla, llo, psio, href):
         '''

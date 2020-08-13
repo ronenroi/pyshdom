@@ -288,6 +288,7 @@ class OptimizationScript(object):
             writer.monitor_loss()
             writer.monitor_shdom_iterations()
             writer.monitor_images(measurements=measurements, ckpt_period=-1)
+            writer.monitor_save3d(ckpt_period=-1)
 
             # save parse_arguments
             self.save_args(log_dir)
