@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from scipy.optimize import minimize_scalar
 from skimage import filters
 import scipy.stats as sci_stat
-from skimage.measure import regionprops
+
 
 class AirMSPIMeasurements(shdom.Measurements):
     """
@@ -657,7 +657,7 @@ class AirMSPIMeasurements(shdom.Measurements):
         Yp = (-dNorth * np.sin(psio)) + (dEast * np.cos(psio))
         Zp = -Alt_p - href
 
-        return Xp, -Yp, Zp
+        return Xp, Yp, Zp
 
     @property
     def sun_azimuth_list(self):

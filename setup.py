@@ -177,7 +177,7 @@ if __name__ == "__main__":
         packages = setuptools.find_packages(),
         include_package_data = True,
         platforms = ["any"],
-        requires = ["numpy", "scipy"],
+        requires = ["numpy", "scipy", 'pymap3d'],
         tests_require = ['nose',],
         test_suite = 'nose.collector',
         zip_safe = True,
