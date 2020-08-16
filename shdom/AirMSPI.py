@@ -6,6 +6,7 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 from scipy.optimize import minimize_scalar
 from skimage import filters
+import scipy.stats as sci_stat
 from skimage.measure import regionprops
 
 class AirMSPIMeasurements(shdom.Measurements):
@@ -154,11 +155,11 @@ class AirMSPIMeasurements(shdom.Measurements):
                     if int(param_name[0:3]) in self._valid_wavelength:
                         sun_azimuth = param['Data Fields']['Sun_azimuth'][roi[0]:roi[1], roi[2]:roi[3]]
                         sun_zenith = param['Data Fields']['Sun_zenith'][roi[0]:roi[1], roi[2]:roi[3]]
-                        sun_azimuth_list.append(np.mean(sun_azimuth))
-                        sun_zenith_list.append(180 - np.mean(sun_zenith))
+                        sun_azimuth_list.append(sci_stat.circmean(np.array(sun_azimuth).ravel(),high=360))
+                        sun_zenith_list.append(180 - sci_stat.circmean(np.array(sun_zenith).ravel(),high=360))
 
-            self._sun_azimuth_list = sun_azimuth_list
-            self._sun_zenith_list = sun_zenith_list
+        self._sun_azimuth_list = sun_azimuth_list
+        self._sun_zenith_list = sun_zenith_list
 
     def load_from_hdf(self, data_dir, region_of_interest,
                       valid_wavelength=[355, 380, 445, 470, 555, 660, 865, 935], sensor_type='Radiance'):
@@ -277,7 +278,7 @@ class AirMSPIMeasurements(shdom.Measurements):
             llo = self._relative_coordinates[:-1]
         psio = 0  # Angle between X axis and North
         href = ground_height.min()  # Reference height
-        flat_earth_pos = (np.array(self.lla2flat(lla, llo, psio, href)) / 1000)  # [Km] N-E coordinates
+        flat_earth_pos = np.array(self.lla2flat(lla, llo, psio, href)) / 1000 # [Km] N-E coordinates
         # image reg with minimal ocean effect in this wl, View_zenith/azimuth equal for all wl
         channels_data = f['HDFEOS']['GRIDS']['355nm_band']['Data Fields'] # 355 was before
         theta = np.deg2rad(channels_data['View_zenith']
@@ -289,8 +290,8 @@ class AirMSPIMeasurements(shdom.Measurements):
         I = np.array(channels_data['I'][region_of_interest[0]:region_of_interest[1],
                      region_of_interest[2]:region_of_interest[3]])
         
-        cloud_base_pos = [flat_earth_pos[1] + self.cloud_base_h * np.tan(theta) * np.cos(phi),
-                          flat_earth_pos[0] + self.cloud_base_h * np.tan(theta) * np.sin(phi)]
+        cloud_base_pos = [flat_earth_pos[0] + self.cloud_base_h * np.tan(theta) * np.cos(phi),
+                          flat_earth_pos[1] + self.cloud_base_h * np.tan(theta) * np.sin(phi)]
         cloud_com_x, cloud_com_y = self.center_of_mass(I,cloud_base_pos[0], cloud_base_pos[1])
 
         bb_x = cloud_base_pos[0] - cloud_com_x
@@ -300,8 +301,8 @@ class AirMSPIMeasurements(shdom.Measurements):
         xTranslation = (airmspi_flight_altitude) * np.tan(theta) * np.cos(phi) - cloud_com_x # X - North
         yTranslation = (airmspi_flight_altitude) * np.tan(theta) * np.sin(phi) - cloud_com_y # Y - East
 
-        x = flat_earth_pos[1] + xTranslation
-        y = flat_earth_pos[0] + yTranslation
+        x = flat_earth_pos[0] + xTranslation
+        y = flat_earth_pos[1] + yTranslation
         z = np.full(resolution, airmspi_flight_altitude)
 
         return shdom.Projection(x=x.ravel('F'), y=y.ravel('F'), z=z.ravel('F'), mu=mu.ravel('F'), phi=phi.ravel('F'),
@@ -600,6 +601,7 @@ class AirMSPIMeasurements(shdom.Measurements):
                 y = np.vstack((y, np.full(4, position_y, dtype=np.float32)))
                 z = np.vstack((z, np.full(4, position_z, dtype=np.float32)))
         ax.quiver(x, y, z, u, v, w, length=length, pivot='tail')
+
     @staticmethod
     def lla2flat(lla, llo, psio, href):
         '''
