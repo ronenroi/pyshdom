@@ -4,6 +4,7 @@ Dynamic_cloud related objects used for time dependant cloud changing.
 """
 
 import warnings
+import glob
 from collections import OrderedDict
 from joblib import Parallel, delayed
 import scipy.ndimage as sci
@@ -1124,54 +1125,6 @@ class Homogeneous(shdom.CloudGenerator):
                             help='Estimated cloud velocity.')
         return parser
 
-    def get_grid_from_measurements(self, measurements):
-        """
-        Retrieve the scatterer grid.
-
-        Returns
-        -------
-        grid: shdom.Grid
-            A Grid object for this scatterer
-        """
-        # time_list = measurements.time_list
-        # scatterer_velocity_list = np.asarray(self.args.cloud_velocity).reshape((3, -1))
-        # assert scatterer_velocity_list.shape[0] == 3 and \
-        #        (scatterer_velocity_list.shape[1] == time_list.shape[0] or scatterer_velocity_list.shape[1] == 1), \
-        #     'time_list, scatterer_velocity_list have wrong dimensions'
-        # scatterer_shifts = 1e-3 * time_list * scatterer_velocity_list.T  # km
-        #
-        x_min = measurements.camera.projection.x.min()
-        x_max = measurements.camera.projection.x.max()
-        y_min = measurements.camera.projection.y.min()
-        y_max = measurements.camera.projection.y.max()
-        z_min = 0
-        z_max = 20
-        #
-        #
-        bb = shdom.BoundingBox(x_min,y_min, z_min, x_max, y_max, z_max)
-        grid = shdom.Grid(bounding_box=bb,nx=self.args.nx,ny=self.args.ny,nz=self.args.nz)
-        #
-        # dx = np.round((x_max - x_min) / self.args.nx, 5)
-        # x = np.arange(x_min, x_max, dx)
-        #
-        # dy = np.round((y_max - y_min) / self.args.ny, 5)
-        # y = np.arange(y_min, y_max, dy)
-        #
-        # dz = np.round((z_max - z_min) / self.args.nz, 5)
-        # z = np.arange(z_min, z_max, dz)
-        #
-        # grid = shdom.Grid(x=x,
-        #                   y=y, z=z)
-        # grid = shdom.Grid(x=np.linspace(0.5, 1.5, 26), y=np.linspace(-2, -1, 26), z=np.linspace(0.5, 1.5, 13))
-
-        # for scatterer_shift in scatterer_shifts:
-        #     grid_list.append(shdom.Grid(bounding_box=bb,
-        #         x=np.linspace(scatterer_shift[1], self.args.nx+ scatterer_shift[0], self.args.nx),
-        #                y=np.linspace(scatterer_shift[1], self.args.ny + scatterer_shift[1], self.args.ny),
-        #                z=np.linspace(0.1 + scatterer_shift[2], self.args.nz + scatterer_shift[2], self.args.nz)))
-            # grid_list.append(shdom.Grid(bounding_box=bb, nx=self.args.nx + scatterer_shift[0], ny=self.args.ny+ scatterer_shift[1], nz=self.args.nz+ scatterer_shift[2]))
-        return grid
-
     def get_grid(self):
         """
         Retrieve the scatterer grid.
@@ -1443,6 +1396,7 @@ class Static(shdom.CloudGenerator):
     """
     def __init__(self, args):
         super(Static, self).__init__(args)
+        self._data = sio.loadmat((glob.glob((str(self.args.load_path) + '/' + '*.mat')))[0])
 
 
     @classmethod
@@ -1460,6 +1414,29 @@ class Static(shdom.CloudGenerator):
         parser: argparse.ArgumentParser()
             The updated parser.
         """
+        parser.add_argument('--load_path',
+                            help='load initialization for medium.')
+        parser.add_argument('--nx',
+                            default=20,
+                            type=int,
+                            help='(default value: %(default)s) Number of grid cell in x (North) direction')
+        parser.add_argument('--ny',
+                            default=20,
+                            type=int,
+                            help='(default value: %(default)s) Number of grid cell in y (East) direction')
+        parser.add_argument('--nz',
+                            default=20,
+                            type=int,
+                            help='(default value: %(default)s) Number of grid cell in z (Up) direction')
+        parser.add_argument('--reff',
+                            default=10.0,
+                            type=np.float32,
+                            help='(default value: %(default)s) Effective radius [micron]')
+        parser.add_argument('--veff',
+                            default=0.01,
+                            type=np.float32,
+                            help='(default value: %(default)s) Effective variance')
+
         return parser
 
     def get_grid(self):
@@ -1471,21 +1448,14 @@ class Static(shdom.CloudGenerator):
         grid: shdom.Grid
             A Grid object for this scatterer
         """
-        time_list = np.asarray(self.args.time_list).reshape((-1, 1))
-        scatterer_velocity_list = np.asarray(self.args.cloud_velocity).reshape((3, -1))
-        assert scatterer_velocity_list.shape[0] == 3 and \
-               (scatterer_velocity_list.shape[1] == time_list.shape[0] or scatterer_velocity_list.shape[1] == 1), \
-            'time_list, scatterer_velocity_list have wrong dimensions'
-        scatterer_shifts = 1e-3 * time_list * scatterer_velocity_list.T  # km
-        bb = shdom.BoundingBox(0.0, 0.0, 0.0, self.args.domain_size, self.args.domain_size, self.args.domain_size)
-        grid_list = []
-        for scatterer_shift in scatterer_shifts:
-            grid_list.append(shdom.Grid(bounding_box=bb,
-                x=np.linspace(scatterer_shift[1], self.args.nx+ scatterer_shift[0], self.args.nx),
-                       y=np.linspace(scatterer_shift[1], self.args.ny + scatterer_shift[1], self.args.ny),
-                       z=np.linspace(0.1 + scatterer_shift[2], self.args.nz + scatterer_shift[2], self.args.nz)))
-            # grid_list.append(shdom.Grid(bounding_box=bb, nx=self.args.nx + scatterer_shift[0], ny=self.args.ny+ scatterer_shift[1], nz=self.args.nz+ scatterer_shift[2]))
-        return grid_list
+
+        nx, ny, nz, nt = (self._data['estimated_extinction']).shape
+        dx = np.asscalar(self._data['dx'])
+        dy = np.asscalar(self._data['dy'])
+        dz = np.asscalar(self._data['dz'])
+        bb = shdom.BoundingBox(0, 0, 0, (nx-1) * dx, (ny-1) * dy, nz * dz)
+
+        return shdom.Grid(bounding_box=bb,nx=nx,ny=ny,nz=nz)
 
     def get_extinction(self, wavelength=None, grid_list=None):
         """
@@ -1509,25 +1479,97 @@ class Static(shdom.CloudGenerator):
         The input wavelength is rounded to three decimals.
         """
         if grid_list is None:
+            NotImplemented()
             grid_list = self.get_grid()
         extinction =[]
-        if self.args.lwc is None:
+        if True: # does not support microphysics
+            ext = shdom.GridData(self.get_grid(), np.squeeze(self._data['estimated_extinction']))
             for grid in grid_list:
-                if grid.type == 'Homogeneous':
-                    ext_data = self.args.extinction
-                elif grid.type == '1D':
-                    ext_data = np.full(shape=(grid.nz), fill_value=self.args.extinction, dtype=np.float32)
-                elif grid.type == '3D':
-                    ext_data = np.full(shape=(grid.nx, grid.ny, grid.nz), fill_value=self.args.extinction, dtype=np.float32)
-                extinction.append(shdom.GridData(grid, ext_data))
+                extinction.append(ext.resample(grid))
         else:
-            assert wavelength is not None, 'No wavelength provided'
-            lwc_list = self.get_lwc(grid_list)
-            reff_list = self.get_reff(grid_list)
-            veff_list = self.get_veff(grid_list)
-            for lwc, reff, veff in zip(lwc_list,reff_list,veff_list):
-                extinction.append(self.mie[shdom.float_round(wavelength)].get_extinction(lwc, reff, veff))
+            NotImplemented()
         return extinction
+
+    def get_albedo(self, wavelength, grid_list=None):
+        """
+        Retrieve the single scattering albedo at a single wavelength on a grid.
+
+        Parameters
+        ----------
+        wavelength: float
+            Wavelength in microns. A Mie table at this wavelength should be added prior (see add_mie method).
+        grid: shdom.Grid, optional
+            A shdom.Grid object. If None is specified than a grid is created from Arguments given to the generator (get_grid method)
+
+        Returns
+        -------
+        albedo: shdom.GridData
+            A GridData object containing the single scattering albedo [0,1] on a grid
+
+        Notes
+        -----
+        The input wavelength is rounded to three decimals.
+        """
+        if grid_list is None:
+            NotImplemented()
+            grid_list = self.get_grid()
+        albedo =[]
+        # if self.args.lwc is None:
+        #     for grid in grid_list:
+        #         if grid.type == 'Homogeneous':
+        #             alb_data = self.args.albedo
+        #         elif grid.type == '1D':
+        #             alb_data = np.full(shape=(grid.nz), fill_value=self.args.albedo, dtype=np.float32)
+        #         elif grid.type == '3D':
+        #             alb_data = np.full(shape=(grid.nx, grid.ny, grid.nz), fill_value=self.args.albedo, dtype=np.float32)
+        #         albedo.append(shdom.GridData(grid, alb_data))
+        # else:
+        assert wavelength is not None, 'No wavelength provided'
+        reff_list = self.get_reff(grid_list)
+        veff_list = self.get_veff(grid_list)
+        for reff, veff in zip(reff_list,veff_list):
+            albedo.append(self.mie[shdom.float_round(wavelength)].get_albedo(reff, veff))
+        return albedo
+
+    def get_phase(self, wavelength, grid_list=None):
+        """
+        Retrieve the single scattering albedo at a single wavelength on a grid.
+
+        Parameters
+        ----------
+        wavelength: float
+            Wavelength in microns. A Mie table at this wavelength should be added prior (see add_mie method).
+        grid: shdom.Grid, optional
+            A shdom.Grid object. If None is specified than a grid is created from Arguments given to the generator (get_grid method)
+
+        Returns
+        -------
+        albedo: shdom.GridData
+            A GridData object containing the single scattering albedo [0,1] on a grid
+
+        Notes
+        -----
+        The input wavelength is rounded to three decimals.
+        """
+        if grid_list is None:
+            NotImplemented()
+            grid_list = self.get_grid()
+        phase =[]
+        # for grid in grid_list:
+        #     if grid.type == 'Homogeneous':
+        #         phase_data = self.args.phase
+        #     elif grid.type == '1D':
+        #         phase_data = np.full(shape=(grid.nz), fill_value=self.args.phase, dtype=np.float32)
+        #     elif grid.type == '3D':
+        #         phase_data = np.full(shape=(grid.nx, grid.ny, grid.nz), fill_value=self.args.phase, dtype=np.float32)
+        #     phase.append(shdom.GridData(grid, phase_data))
+        # else:
+        assert wavelength is not None, 'No wavelength provided'
+        reff_list = self.get_reff(grid_list)
+        veff_list = self.get_veff(grid_list)
+        for reff, veff in zip(reff_list,veff_list):
+            phase.append(self.mie[shdom.float_round(wavelength)].get_phase(reff, veff))
+        return phase
 
     def get_lwc(self, grid_list=None):
         """
@@ -1544,6 +1586,7 @@ class Static(shdom.CloudGenerator):
             A GridData object containing liquid water content (g/m^3) on a 3D grid.
         """
         if grid_list is None:
+            NotImplemented()
             grid_list = self.get_grid()
 
         lwc = self.args.lwc
@@ -1575,6 +1618,7 @@ class Static(shdom.CloudGenerator):
             A GridData object containing the effective radius [microns] on a grid
         """
         if grid_list is None:
+            NotImplemented()
             grid_list = self.get_grid()
 
         reff = self.args.reff
@@ -1606,6 +1650,7 @@ class Static(shdom.CloudGenerator):
             A GridData object containing the effective radius [microns] on a grid
         """
         if grid_list is None:
+            NotImplemented()
             grid_list = self.get_grid()
 
         veff = self.args.veff
@@ -3161,7 +3206,7 @@ class DynamicSummaryWriter(object):
         nz = estimated_extinction.grid.nz
         dz = (estimated_extinction.grid.zmax - estimated_extinction.grid.zmin) / nz
         sio.savemat(os.path.join(self._dir, 'FINAL_3D_{}.mat'.format('extinction')),
-                    {'estimated_extinction': estimated_extinction_stack, 'dx': dy, 'dy': dx, 'dz': dz, 'iteration': self.optimizer.iteration})
+                    {'estimated_extinction': estimated_extinction_stack, 'dx': dx, 'dy': dy, 'dz': dz, 'iteration': self.optimizer.iteration})
 
     @property
     def callback_fns(self):

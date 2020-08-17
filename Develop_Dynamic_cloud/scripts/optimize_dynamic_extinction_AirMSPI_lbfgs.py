@@ -388,8 +388,8 @@ class OptimizationScript(object):
             for wavelength in wavelengths:
                 scene_params = shdom.SceneParameters(
                     wavelength=wavelength,
-                    # surface=shdom.LambertianSurface(albedo=0.008),
-                    surface=shdom.OceanSurface(wind_speed=5),
+                    surface=shdom.LambertianSurface(albedo=albedo),
+                    # surface=shdom.OceanSurface(wind_speed=5),
                     source=shdom.SolarSource(azimuth=sun_azimuth, zenith=sun_zenith)
                 )
                 scene_params_list.append(scene_params)
@@ -407,8 +407,8 @@ class OptimizationScript(object):
             for wavelength in wavelengths:
                 scene_params = shdom.SceneParameters(
                     wavelength=wavelength,
-                    # surface=shdom.LambertianSurface(albedo=0.008),
-                    surface=shdom.OceanSurface(wind_speed=5),
+                    surface=shdom.LambertianSurface(albedo=cv_albedo),
+                    # surface=shdom.OceanSurface(wind_speed=5),
                     source=shdom.SolarSource(azimuth=cv_sun_azimuth, zenith=cv_sun_zenith)
                 )
                 scene_params_list.append(scene_params)
