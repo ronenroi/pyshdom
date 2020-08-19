@@ -2262,7 +2262,7 @@ class DynamicLocalOptimizer(object):
         index = np.where(self._cv_indices == self._cv_indices.max())[0]
         if index == 0:
             medium = self._medium.medium_list[np.where(1 == self._cv_indices)[0].item()]
-        elif index == len(self._cv_indices - 1):
+        elif index == len(self._cv_indices) - 1:
             medium = self._medium.medium_list[np.where((index - 1) == self._cv_indices)[0].item()]
         else:
             previous_medium = self._medium.medium_list[np.where((index - 1) == self._cv_indices)[0].item()]
@@ -2715,7 +2715,6 @@ class DynamicSummaryWriter(object):
                 state = np.concatenate((state, param.get_state() / param.precondition_scale_factor))
         self.states.append(state)
 
-
     def diff_images_cbfn(self, kwargs):
         """
         Callback function the is called every optimizer iteration image monitoring is set.
@@ -2727,7 +2726,6 @@ class DynamicSummaryWriter(object):
         """
         diff = [np.abs(im1 - im2) for im1, im2 in zip(kwargs['acquired_images'], self.optimizer.images)]
         self.write_image_list(self.optimizer.iteration, diff, kwargs['title'], kwargs['vmax'])
-
 
     def estimated_images_cbfn(self, kwargs):
         """
@@ -2862,7 +2860,6 @@ class DynamicSummaryWriter(object):
                             global_step=self.optimizer.iteration
                         )
 
-
     def scatter_plot_cbfn(self, kwargs):
         """
         Callback function for monitoring scatter plot of parameters.
@@ -2910,7 +2907,6 @@ class DynamicSummaryWriter(object):
                         figure=fig,
                         global_step=self.optimizer.iteration
                     )
-
 
     def write_image_list(self, global_step, images, titles, vmax=None):
         """
@@ -2963,7 +2959,6 @@ class DynamicSummaryWriter(object):
                     global_step=global_step
                 )
 
-
     def monitor_cross_validation(self, cv_measurement, dilute_percent=0.4, ckpt_period=-1):
         """
         Monitor the Cross Validation process
@@ -3008,8 +3003,6 @@ class DynamicSummaryWriter(object):
             'percent': dilute_percent,
         }
         self.add_callback_fn(self.cv_image_scatter_plot_cbfn, kwargs)
-
-
 
     def cv_loss_cbfn(self, kwargs):
         """

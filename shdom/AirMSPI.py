@@ -198,8 +198,6 @@ class AirMSPIMeasurements(shdom.Measurements):
         self.set_images()
         self._pixels = self.images_to_pixels(self.images)
         self.set_sun_params()
-        self.calc_albedo()
-        self.check_glint_angle()
 
     def set_region_of_interest(self, region_of_interest):
         """
@@ -477,15 +475,15 @@ class AirMSPIMeasurements(shdom.Measurements):
 
         self._glint_angles = glint_angles
 
-    def calc_albedo(self, threshold=None, medium_list=None):
-
+    def calc_albedo(self, threshold=None, medium_list=None, n_jobs=1):
+        dir_path = os.path.dirname(os.path.abspath(__file__))
         wavelengths = self.wavelength
         if not isinstance(wavelengths, list):
             wavelengths = [wavelengths]
         assert len(wavelengths) == 1, 'should be generelized to multispectral if works'
         # Mie scattering for water droplets
-        mie_table_paths = [
-            '../mie_tables/polydisperse/Water_{}nm.scat'.format(shdom.int_round(wavelength))
+        mie_table_paths = [os.path.join(dir_path,
+            '../mie_tables/polydisperse/Water_{}nm.scat'.format(shdom.int_round(wavelength)))
             for wavelength in wavelengths
         ]
         # solar_spectrum = shdom.SolarSpectrum('../ancillary_data/SpectralSolar_MODWehrli_1985_WMO.npz')
@@ -493,7 +491,7 @@ class AirMSPIMeasurements(shdom.Measurements):
         # solar_flux = solar_fluxes
         solar_flux = 1
         if medium_list is None:
-            df = pd.read_csv('../ancillary_data/AFGL_summer_mid_lat.txt', comment='#', sep=' ')
+            df = pd.read_csv(os.path.join(dir_path,'../ancillary_data/AFGL_summer_mid_lat.txt'), comment='#', sep=' ')
             temperatures = df['Temperature(k)'].to_numpy(dtype=np.float32)
             altitudes = df['Altitude(km)'].to_numpy(dtype=np.float32)
             temperature_profile = shdom.GridData(shdom.Grid(z=altitudes), temperatures)
@@ -520,12 +518,9 @@ class AirMSPIMeasurements(shdom.Measurements):
                 im_threshold = filters.threshold_otsu(image)
             else:
                 im_threshold = threshold
-            ocean = np.mean(image[image < im_threshold])
-            if medium_list is None:
-                image = np.full(image.shape, ocean)
             albedo_opt_res = minimize_scalar(lambda albedo: self.calc_albedo_mse(albedo, wavelengths[0], sun_azimuth, sun_zenith,\
-                                                                      solar_flux, atmosphere, image, sensor,\
-                                                                       projection), bounds=(0, 0.1), method='bounded')
+                                                                      solar_flux, atmosphere, image, im_threshold, sensor,\
+                                                                       projection, n_jobs), bounds=(0, 0.1), method='bounded')
             albedo_opt_res_list.append(albedo_opt_res)
             est_albedo = albedo_opt_res.x
             est_albedo_list.append(est_albedo)
@@ -533,7 +528,8 @@ class AirMSPIMeasurements(shdom.Measurements):
         self._est_albedo_list = est_albedo_list
 
     @staticmethod
-    def calc_albedo_mse(albedo, wavelength, sun_azimuth, sun_zenith, solar_flux, atmosphere, image, sensor, projection):
+    def calc_albedo_mse(albedo, wavelength, sun_azimuth, sun_zenith, solar_flux, atmosphere, image, im_threshold,
+                        sensor, projection, n_jobs=1):
         numerical_params = shdom.NumericalParameters()
         rte_solvers = shdom.RteSolverArray()
         scene_params = shdom.SceneParameters(
@@ -547,8 +543,87 @@ class AirMSPIMeasurements(shdom.Measurements):
         rte_solvers.add_solver(rte_solver)
         rte_solvers.solve(maxiter=10)
         camera = shdom.Camera(sensor=sensor, projection=projection)
-        rendered_image = camera.render(rte_solvers, n_jobs=40)
-        mse = np.mean(((rendered_image - image).ravel()) ** 2)
+        rendered_image = camera.render(rte_solvers, n_jobs=n_jobs)
+        ocn_diff = (rendered_image - image)[image<im_threshold]
+        mse = np.mean((ocn_diff.ravel()) ** 2)
+        # plt.imshow(rendered_image)
+        # plt.show()
+        return mse
+
+    def calc_wind(self, threshold=None, medium_list=None, n_jobs=1):
+        dir_path = os.path.dirname(os.path.abspath(__file__))
+        wavelengths = self.wavelength
+        if not isinstance(wavelengths, list):
+            wavelengths = [wavelengths]
+        assert len(wavelengths) == 1, 'should be generelized to multispectral if works'
+        # Mie scattering for water droplets
+        mie_table_paths = [os.path.join(dir_path,
+                                        '../mie_tables/polydisperse/Water_{}nm.scat'.format(
+                                            shdom.int_round(wavelength)))
+                           for wavelength in wavelengths
+                           ]
+        # solar_spectrum = shdom.SolarSpectrum('../ancillary_data/SpectralSolar_MODWehrli_1985_WMO.npz')
+        # solar_fluxes = solar_spectrum.get_monochrome_solar_flux(wavelengths)
+        # solar_flux = solar_fluxes
+        solar_flux = 1
+        if medium_list is None:
+            df = pd.read_csv(os.path.join(dir_path, '../ancillary_data/AFGL_summer_mid_lat.txt'), comment='#', sep=' ')
+            temperatures = df['Temperature(k)'].to_numpy(dtype=np.float32)
+            altitudes = df['Altitude(km)'].to_numpy(dtype=np.float32)
+            temperature_profile = shdom.GridData(shdom.Grid(z=altitudes), temperatures)
+            air_grid = shdom.Grid(z=np.linspace(0, 20, 20))
+            air = shdom.MultispectralScatterer()
+            for wavelength, table_path in zip(wavelengths, mie_table_paths):
+                # Molecular Rayleigh scattering
+                rayleigh = shdom.Rayleigh(wavelength)
+                rayleigh.set_profile(temperature_profile.resample(air_grid))
+                air.add_scatterer(rayleigh.get_scatterer())
+            grid = shdom.Grid(bounding_box=self.bb, nx=10, ny=10, nz=10)
+            atmospheric_grid = grid + air.grid
+            atmosphere = shdom.Medium(atmospheric_grid)
+            atmosphere.add_scatterer(air, name='air')
+            medium_list = [atmosphere] * len(self.images)
+
+        sensor = self.camera.sensor
+        wind_opt_res_list = []
+        est_wind_list = []
+        for image, sun_azimuth, sun_zenith, projection, atmosphere in zip(self.images, self.sun_azimuth_list,
+                                                                          self.sun_zenith_list,
+                                                                          self._projections.projection_list,
+                                                                          medium_list):
+            if threshold is None:
+                im_threshold = filters.threshold_otsu(image)
+            else:
+                im_threshold = threshold
+            wind_opt_res = minimize_scalar(
+                lambda wind: self.calc_wind_mse(wind, wavelengths[0], sun_azimuth, sun_zenith, \
+                                                    solar_flux, atmosphere, image, im_threshold, sensor, \
+                                                    projection, n_jobs), bounds=(5, 25), method='bounded')
+            wind_opt_res_list.append(wind_opt_res)
+            est_wind = wind_opt_res.x
+            est_wind_list.append(est_wind)
+        self._wind_opt_res_list = wind_opt_res_list
+        self._est_wind_list = est_wind_list
+
+    @staticmethod
+    def calc_wind_mse(wind, wavelength, sun_azimuth, sun_zenith, solar_flux, atmosphere, image, im_threshold,
+                        sensor, projection, n_jobs=1):
+        numerical_params = shdom.NumericalParameters()
+        rte_solvers = shdom.RteSolverArray()
+        scene_params = shdom.SceneParameters(
+            surface=shdom.OceanSurface(wind_speed=wind),
+            wavelength=wavelength,
+            source=shdom.SolarSource(azimuth=sun_azimuth,
+                                     zenith=sun_zenith, flux=solar_flux)
+        )
+        rte_solver = shdom.RteSolver(scene_params, numerical_params)
+        rte_solver.set_medium(atmosphere)
+        rte_solvers.add_solver(rte_solver)
+        rte_solvers.solve(maxiter=10)
+        camera = shdom.Camera(sensor=sensor, projection=projection)
+        rendered_image = camera.render(rte_solvers, n_jobs=n_jobs)
+        ocn_diff = (rendered_image - image)[image < im_threshold]
+        mse = np.mean((ocn_diff.ravel()) ** 2)
         # plt.imshow(rendered_image)
         # plt.show()
         return mse
@@ -674,6 +749,10 @@ class AirMSPIMeasurements(shdom.Measurements):
     @property
     def est_albedo_list(self):
         return self._est_albedo_list
+
+    @property
+    def est_wind_list(self):
+        return self._est_wind_list
 
 
 class AirMSPIDynamicMeasurements(AirMSPIMeasurements, shdom.DynamicMeasurements):

@@ -155,6 +155,10 @@ class OptimizationScript(object):
                             default='mie_tables/polydisperse/Water_<wavelength>nm.scat',
                             help='(default value: %(default)s) Mie table base file name. ' \
                                  '<wavelength> will be replaced by the corresponding wavelength.')
+        parser.add_argument('--surface_type',
+                            default='Lambertian',
+                            type=str,
+                            help='')
 
         return parser
 
@@ -363,7 +367,14 @@ class OptimizationScript(object):
             wavelengths = [wavelengths]
         sun_azimuth_list = measurements.sun_azimuth_list
         sun_zenith_list = measurements.sun_zenith_list
-        est_albedo_list = measurements.est_albedo_list
+        if self.args.surface_type == 'Lambertian':
+            measurements.calc_albedo(n_jobs=self.args.n_jobs)
+            surface_params = measurements.est_albedo_list
+        elif self.args.surface_type == 'Ocean':
+            measurements.calc_wind(n_jobs=self.args.n_jobs)
+            surface_params = measurements.est_wind_list
+        else:
+            assert False, 'unknown surface type'
 
         cv_index = self.args.use_cross_validation
         num_of_mediums = self.args.num_mediums
@@ -372,24 +383,29 @@ class OptimizationScript(object):
         if cv_index >= 0:
             cv_sun_azimuth = sun_azimuth_list[cv_index]
             cv_sun_zenith = sun_zenith_list[cv_index]
-            cv_albedo = est_albedo_list[cv_index]
+            cv_param = surface_params[cv_index]
             sun_azimuth_list = np.delete(sun_azimuth_list, cv_index)
             sun_zenith_list = np.delete(sun_zenith_list, cv_index)
-            est_albedo_list = np.delete(est_albedo_list, cv_index)
+            surface_params = np.delete(surface_params, cv_index)
         sun_azimuth_list = sci_stat.circmean(np.split(np.array(sun_azimuth_list), num_of_mediums), axis=1,high=360)
         sun_zenith_list = sci_stat.circmean(np.split(np.array(sun_zenith_list), num_of_mediums), axis=1,high=360)
-        est_albedo_list = np.mean(np.split(np.array(est_albedo_list), num_of_mediums), 1)
+        surface_params = np.mean(np.split(np.array(surface_params), num_of_mediums), 1)
 
         wl_scene_params_list =[]
         wl_numerical_params_list =[]
-        for sun_azimuth, sun_zenith, albedo in zip(sun_azimuth_list, sun_zenith_list, est_albedo_list):
+        for sun_azimuth, sun_zenith, surface_param in zip(sun_azimuth_list, sun_zenith_list, surface_params):
+            if self.args.surface_type == 'Lambertian':
+                surface = shdom.LambertianSurface(albedo=surface_param)
+            elif self.args.surface_type == 'Ocean':
+                surface = shdom.OceanSurface(wind_speed=surface_param)
+            else:
+                assert False, 'unknown surface type'
             scene_params_list = []
             numerical_params_list = []
             for wavelength in wavelengths:
                 scene_params = shdom.SceneParameters(
                     wavelength=wavelength,
-                    surface=shdom.LambertianSurface(albedo=albedo),
-                    # surface=shdom.OceanSurface(wind_speed=5),
+                    surface=surface,
                     source=shdom.SolarSource(azimuth=sun_azimuth, zenith=sun_zenith)
                 )
                 scene_params_list.append(scene_params)
@@ -404,11 +420,16 @@ class OptimizationScript(object):
             wl_numerical_params_list = []
             scene_params_list = []
             numerical_params_list = []
+            if self.args.surface_type == 'Lambertian':
+                surface = shdom.LambertianSurface(albedo=cv_param)
+            elif self.args.surface_type == 'Ocean':
+                surface = shdom.OceanSurface(wind_speed=cv_param)
+            else:
+                assert False, 'unknown surface type'
             for wavelength in wavelengths:
                 scene_params = shdom.SceneParameters(
                     wavelength=wavelength,
-                    surface=shdom.LambertianSurface(albedo=cv_albedo),
-                    # surface=shdom.OceanSurface(wind_speed=5),
+                    surface=surface,
                     source=shdom.SolarSource(azimuth=cv_sun_azimuth, zenith=cv_sun_zenith)
                 )
                 scene_params_list.append(scene_params)
