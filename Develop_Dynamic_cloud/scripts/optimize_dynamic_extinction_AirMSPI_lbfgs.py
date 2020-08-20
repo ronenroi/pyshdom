@@ -94,7 +94,7 @@ class OptimizationScript(object):
                             type=float,
                             help='(default value: %(default)s) Loss function weights for stokes vector components [I, Q, U, V]')
         parser.add_argument('--loss_type',
-                            choices=['l2', 'normcorr'],
+                            choices=['l2', 'l2_weighted', 'normcorr'],
                             default='l2',
                             help='Different loss functions for optimization. Currently only l2 is supported.')
         parser.add_argument('--num_mu_bins',
@@ -217,8 +217,17 @@ class OptimizationScript(object):
         num_of_mediums = self.args.num_mediums
         cv_index = self.args.use_cross_validation
         time_list = measurements.time_list
+        images_weight = None
         if cv_index >= 0:
+            cv_time = time_list[cv_index]
             time_list = np.delete(time_list, cv_index)
+            if self.args.loss_type == 'l2_weighted':
+                delta_time = np.abs(np.array(time_list) - cv_time)
+                images_weight = 1 / delta_time
+                images_weight /= np.sum(images_weight)
+                images_weight += 1
+                images_weight /= np.sum(images_weight)
+                images_weight *= images_weight.shape
 
         assert isinstance(num_of_mediums, int) and num_of_mediums <= len(time_list)
         time_list = np.mean(np.split(time_list, num_of_mediums), 1)
@@ -264,7 +273,7 @@ class OptimizationScript(object):
 
         # Create a medium estimator object (optional Rayleigh scattering)
         air = self.air_generator.get_scatterer(wavelength)
-        medium_estimator = shdom.DynamicMediumEstimator(cloud_estimator, air, cloud_velocity)
+        medium_estimator = shdom.DynamicMediumEstimator(cloud_estimator, air, cloud_velocity,images_weight=images_weight, loss_type=self.args.loss_type)
 
         return medium_estimator
 
@@ -368,10 +377,10 @@ class OptimizationScript(object):
         sun_azimuth_list = measurements.sun_azimuth_list
         sun_zenith_list = measurements.sun_zenith_list
         if self.args.surface_type == 'Lambertian':
-            measurements.calc_albedo(n_jobs=self.args.n_jobs)
+            # measurements.calc_albedo(n_jobs=self.args.n_jobs)
             surface_params = measurements.est_albedo_list
         elif self.args.surface_type == 'Ocean':
-            measurements.calc_wind(n_jobs=self.args.n_jobs)
+            # measurements.calc_wind(n_jobs=self.args.n_jobs)
             surface_params = measurements.est_wind_list
         else:
             assert False, 'unknown surface type'
@@ -395,7 +404,7 @@ class OptimizationScript(object):
         wl_numerical_params_list =[]
         for sun_azimuth, sun_zenith, surface_param in zip(sun_azimuth_list, sun_zenith_list, surface_params):
             if self.args.surface_type == 'Lambertian':
-                surface = shdom.LambertianSurface(albedo=surface_param)
+                surface = shdom.LambertianSurface(albedo=0.0008)
             elif self.args.surface_type == 'Ocean':
                 surface = shdom.OceanSurface(wind_speed=surface_param)
             else:
@@ -421,7 +430,7 @@ class OptimizationScript(object):
             scene_params_list = []
             numerical_params_list = []
             if self.args.surface_type == 'Lambertian':
-                surface = shdom.LambertianSurface(albedo=cv_param)
+                surface = shdom.LambertianSurface(albedo=0.0008)
             elif self.args.surface_type == 'Ocean':
                 surface = shdom.OceanSurface(wind_speed=cv_param)
             else:

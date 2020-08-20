@@ -792,6 +792,17 @@ class MediumEstimator(shdom.Medium):
                                             num_wavelengths)
                 return loss, gradient, images
 
+        elif loss_type == 'l2_weighted':
+            core_grad = self.grad_l2_weighted
+
+            def output_transform(output, projection, sensor, num_wavelengths):
+                loss = np.sum(list(map(lambda x: x[1], output)))
+                gradient = np.sum(list(map(lambda x: x[0], output)), axis=0)
+                images = sensor.make_images(np.concatenate(list(map(lambda x: x[2], output)), axis=-1),
+                                            projection,
+                                            num_wavelengths)
+                return loss, gradient, images
+
         elif loss_type == 'normcorr':
             core_grad = self.grad_normcorr
 
@@ -1258,7 +1269,132 @@ class MediumEstimator(shdom.Medium):
         )
         return gradient, loss, images
 
-    def compute_gradient(self, rte_solvers, measurements, n_jobs):
+    def grad_l2_weighted(self, rte_solver, projection, pixels, pixels_weight):
+        """
+        The core l2 gradient method.
+
+        Parameters
+        ----------
+        rte_solver: shdom.RteSolver
+            A solver with all the associated parameters and the solution to the RTE
+        projection: shdom.Projection
+            A projection model which specified the position and direction of each and every pixel
+        pixels: np.array(shape=(projection.npix), dtype=np.float32)
+            The acquired pixels driving the error and optimization.
+
+        Returns
+        -------
+        gradient: np.array(shape=(rte_solver._nbpts, self.num_derivatives), dtype=np.float64)
+            The gradient with respect to all parameters at every grid base point
+        loss: float64
+            The total loss accumulated over all pixels
+        images: np.array(shape=(rte_solver._nstokes, projection.npix), dtype=np.float32)
+            The rendered (synthetic) images.
+        """
+        if isinstance(projection.npix, list):
+            total_pix = np.sum(projection.npix)
+        else:
+            total_pix = projection.npix
+
+        gradient, loss, images = core.gradient_l2_weighted(
+            weights=self._stokes_weights[:rte_solver._nstokes],
+            exact_single_scatter=self._exact_single_scatter,
+            nstphase=rte_solver._nstphase,
+            dpath=self._direct_derivative_path,
+            dptr=self._direct_derivative_ptr,
+            npx=rte_solver._pa.npx,
+            npy=rte_solver._pa.npy,
+            npz=rte_solver._pa.npz,
+            delx=rte_solver._pa.delx,
+            dely=rte_solver._pa.dely,
+            xstart=rte_solver._pa.xstart,
+            ystart=rte_solver._pa.ystart,
+            zlevels=rte_solver._pa.zlevels,
+            extdirp=rte_solver._pa.extdirp,
+            uniformzlev=rte_solver._uniformzlev,
+            partder=self.unknown_scatterers_indices,
+            numder=self.num_derivatives,
+            dext=rte_solver._dext,
+            dalb=rte_solver._dalb,
+            diphase=rte_solver._diphase,
+            dleg=rte_solver._dleg,
+            dphasetab=rte_solver._dphasetab,
+            dnumphase=rte_solver._dnumphase,
+            nscatangle=rte_solver._nscatangle,
+            phasetab=rte_solver._phasetab,
+            ylmsun=rte_solver._ylmsun,
+            nstokes=rte_solver._nstokes,
+            nstleg=rte_solver._nstleg,
+            nx=rte_solver._nx,
+            ny=rte_solver._ny,
+            nz=rte_solver._nz,
+            bcflag=rte_solver._bcflag,
+            ipflag=rte_solver._ipflag,
+            npts=rte_solver._npts,
+            nbpts=rte_solver._nbpts,
+            ncells=rte_solver._ncells,
+            nbcells=rte_solver._nbcells,
+            ml=rte_solver._ml,
+            mm=rte_solver._mm,
+            ncs=rte_solver._ncs,
+            nlm=rte_solver._nlm,
+            numphase=rte_solver._pa.numphase,
+            nmu=rte_solver._nmu,
+            nphi0max=rte_solver._nphi0max,
+            nphi0=rte_solver._nphi0,
+            maxnbc=rte_solver._maxnbc,
+            ntoppts=rte_solver._ntoppts,
+            nbotpts=rte_solver._nbotpts,
+            nsfcpar=rte_solver._nsfcpar,
+            gridptr=rte_solver._gridptr,
+            neighptr=rte_solver._neighptr,
+            treeptr=rte_solver._treeptr,
+            shptr=rte_solver._shptr,
+            bcptr=rte_solver._bcptr,
+            cellflags=rte_solver._cellflags,
+            iphase=rte_solver._iphase[:rte_solver._npts],
+            deltam=rte_solver._deltam,
+            solarflux=rte_solver._solarflux,
+            solarmu=rte_solver._solarmu,
+            solaraz=rte_solver._solaraz,
+            gndtemp=rte_solver._gndtemp,
+            gndalbedo=rte_solver._gndalbedo,
+            skyrad=rte_solver._skyrad,
+            waveno=rte_solver._waveno,
+            wavelen=rte_solver._wavelen,
+            mu=rte_solver._mu,
+            phi=rte_solver._phi,
+            wtdo=rte_solver._wtdo,
+            xgrid=rte_solver._xgrid,
+            ygrid=rte_solver._ygrid,
+            zgrid=rte_solver._zgrid,
+            gridpos=rte_solver._gridpos,
+            sfcgridparms=rte_solver._sfcgridparms,
+            bcrad=rte_solver._bcrad,
+            extinct=rte_solver._extinct[:rte_solver._npts],
+            albedo=rte_solver._albedo[:rte_solver._npts],
+            legen=rte_solver._legen,
+            dirflux=rte_solver._dirflux[:rte_solver._npts],
+            fluxes=rte_solver._fluxes,
+            source=rte_solver._source,
+            camx=projection.x,
+            camy=projection.y,
+            camz=projection.z,
+            cammu=projection.mu,
+            camphi=projection.phi,
+            npix=total_pix,
+            srctype=rte_solver._srctype,
+            sfctype=rte_solver._sfctype,
+            units=rte_solver._units,
+            measurements=pixels,
+            rshptr=rte_solver._rshptr,
+            radiance=rte_solver._radiance,
+            total_ext=rte_solver._total_ext[:rte_solver._npts],
+            pixels_weight=pixels_weight
+        )
+        return gradient, loss, images
+
+    def compute_gradient(self, rte_solvers, measurements, n_jobs, measurement_weight=None):
         """
         Compute the gradient with respect to the current state.
         If n_jobs>1 than parallel gradient computation is used with pixels are distributed amongst all workers
@@ -1292,20 +1428,39 @@ class MediumEstimator(shdom.Medium):
         pixels = measurements.pixels
         
         # Sequential or parallel processing using multithreading (threadsafe Fortran)
-        if n_jobs > 1:           
-            output = Parallel(n_jobs=n_jobs, backend="threading", verbose=0)(
-                delayed(self.core_grad, check_pickle=False)(
-                    rte_solver=rte_solvers[channel],
-                    projection=projection,
-                    pixels=spectral_pixels[..., channel]
-                ) for channel, (projection, spectral_pixels) in
-                itertools.product(range(self.num_wavelengths), zip(projection.split(n_jobs), np.array_split(pixels, n_jobs, axis=-2)))
-            )
+        if measurement_weight is not None:
+            if n_jobs > 1:
+                output = Parallel(n_jobs=n_jobs, backend="threading", verbose=0)(
+                    delayed(self.core_grad, check_pickle=False)(
+                        rte_solver=rte_solvers[channel],
+                        projection=projection,
+                        pixels=spectral_pixels[..., channel],
+                        pixels_weight=pixels_weight
+                    ) for channel, (projection, spectral_pixels, pixels_weight) in
+                    itertools.product(range(self.num_wavelengths), zip(projection.split(n_jobs), np.array_split(pixels, n_jobs, axis=-2), np.array_split(measurement_weight, n_jobs)))
+                )
+            else:
+                output = [
+                    self.core_grad(rte_solvers[channel], projection, pixels[..., channel], measurement_weight)
+                    for channel in range(self.num_wavelengths)
+                ]
         else:
-            output = [
-                self.core_grad(rte_solvers[channel], projection, pixels[..., channel])
-                for channel in range(self.num_wavelengths)
-            ]
+            if n_jobs > 1:
+                output = Parallel(n_jobs=n_jobs, backend="threading", verbose=0)(
+                    delayed(self.core_grad, check_pickle=False)(
+                        rte_solver=rte_solvers[channel],
+                        projection=projection,
+                        pixels=spectral_pixels[..., channel]
+
+                    ) for channel, (projection, spectral_pixels) in
+                    itertools.product(range(self.num_wavelengths),
+                                      zip(projection.split(n_jobs), np.array_split(pixels, n_jobs, axis=-2)))
+                )
+            else:
+                output = [
+                    self.core_grad(rte_solvers[channel], projection, pixels[..., channel])
+                    for channel in range(self.num_wavelengths)
+                ]
         
         # Sum over all the losses of the different channels
         loss, gradient, images = self.output_transform(output, projection, sensor, self.num_wavelengths)

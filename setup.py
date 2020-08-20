@@ -104,6 +104,7 @@ F2PY_CORE_API = [
     'variable_lambertian_boundary',
     'gradient_normcorr',
     'gradient_l2',
+    'gradient_l2_weighted',
     'space_carve',
     'precompute_phase_check',
     'precompute_phase_check_grad'

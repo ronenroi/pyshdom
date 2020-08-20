@@ -1800,13 +1800,14 @@ class DynamicScattererEstimator(object):
 class DynamicMediumEstimator(object):
 
     def __init__(self, dynamic_scatterer_estimator=None, air=None, scatterer_velocity=[0,0,0],
-                 loss_type='l2', exact_single_scatter=True, stokes_weights=None):
+                 loss_type='l2', exact_single_scatter=True, stokes_weights=None, images_weight=None):
         self._num_mediums = 0
         self._wavelength = []
         self._dynamic_medium = []
         self._time_list = []
         self._medium_list = []
         self._images_mask = None
+        self._images_weight = images_weight
         self._dynamic_scatterer_estimator = dynamic_scatterer_estimator
         self._scatterer_velocity = scatterer_velocity
         if dynamic_scatterer_estimator is not None and air is not None:
@@ -1841,16 +1842,22 @@ class DynamicMediumEstimator(object):
         data_loss = 0.0
         images = []
         loss =[]
-
-
+        images_weight = self._images_weight
         resolutions = measurements.camera.dynamic_projection.resolution
-        total_pix = np.sum(np.array(measurements.camera.dynamic_projection.npix).ravel())
+        pix = np.array(measurements.camera.dynamic_projection.npix).ravel()
+        total_pix = np.sum(pix)
         num_images = len(measurements.images)
         avg_npix = np.mean(resolutions)**2
         vmax = [image.max() * 1.25 for image in measurements.images]
         vmax = max(vmax)
         split_indices = np.cumsum(measurements.camera.dynamic_projection.npix[:-1])
         measurements = measurements.split(split_indices)
+        if images_weight is not None:
+            assert np.isclose(np.sum(images_weight), num_images)
+            images_weight = np.repeat(images_weight, pix)
+            measurements_weight = np.array_split(images_weight, split_indices)
+        else:
+            measurements_weight = [None]*len(measurements)
         # if len(self.wavelength)>2:
         wavelength = self.wavelength
         if not isinstance(self.wavelength,list):
@@ -1859,11 +1866,11 @@ class DynamicMediumEstimator(object):
         multichannel = num_channels > 1
         norm_const = total_pix * vmax
 
-        for medium_estimator, rte_solver, measurement in zip(self.medium_list, dynamic_solver.solver_array_list, measurements):
-            grad_output = medium_estimator.compute_gradient(shdom.RteSolverArray(rte_solver),measurement,n_jobs)
+        for medium_estimator, rte_solver, measurement, measurement_weight in zip(self.medium_list, dynamic_solver.solver_array_list, measurements, measurements_weight):
+            grad_output = medium_estimator.compute_gradient(shdom.RteSolverArray(rte_solver),measurement,n_jobs,measurement_weight)
             # data_gradient.extend(grad_output[0] / measurement.images.size/ len(measurements)) #unit less grad
             # data_loss += (grad_output[1] / measurement.images.size) #unit less loss
-            data_gradient.extend(grad_output[0]/num_images)
+            data_gradient.extend(grad_output[0] / num_images)
             data_loss += (grad_output[1])
             image = grad_output[2]
             # resolution = measurement.images.shape

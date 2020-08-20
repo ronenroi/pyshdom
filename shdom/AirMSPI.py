@@ -198,7 +198,9 @@ class AirMSPIMeasurements(shdom.Measurements):
         self.set_images()
         self._pixels = self.images_to_pixels(self.images)
         self.set_sun_params()
-
+        self.calc_albedo(n_jobs=72)
+        self.calc_wind(n_jobs=72)
+        self.check_glint_angle()
     def set_region_of_interest(self, region_of_interest):
         """
             Set the region of interest for every image.

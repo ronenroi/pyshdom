@@ -28,3 +28,4 @@ Classifier: Topic :: Scientific/Engineering :: Mathematics
 Classifier: Operating System :: OS Independent
 Requires: numpy
 Requires: scipy
+Requires: pymap3d
